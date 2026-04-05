@@ -1,3 +1,11 @@
+---
+title: Warehouse Bot Env
+emoji: 🏭
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
 <<<<<<< HEAD
 ---
 title: Warehouse Bot Env
