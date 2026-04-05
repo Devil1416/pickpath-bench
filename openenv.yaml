@@ -1,8 +1,5 @@
 name: warehouse-bot-env
 description: Deterministic warehouse picking optimization environment for evaluating route efficiency in logistics operations.
-version: 1.0.0
-entry_point: env.env:WarehouseBotEnv
-inference_entry: inference.py
 tasks:
   - id: easy
     name: Easy
@@ -28,8 +25,6 @@ action_schema:
 observation_schema:
   type: object
   properties:
-    grid_size:
-      type: integer
     agent_position:
       type: object
       properties:
@@ -80,18 +75,16 @@ observation_schema:
       type: integer
     task_id:
       type: string
+    grid_size:
+      type: integer
     done:
       type: boolean
     total_items:
       type: integer
   required:
-    - grid_size
     - agent_position
     - item_positions
     - picked_items
     - obstacles
     - step_count
     - task_id
-    - done
-    - total_items
-

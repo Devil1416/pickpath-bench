@@ -74,7 +74,7 @@ class WarehouseBotEnv:
                 info=StepInfoModel(
                     collected_items=len(self._picked_items),
                     total_items=len(self._task.item_positions),
-                    task_complete=True,
+                    task_complete=not self._remaining_items,
                 ),
             )
 
@@ -143,4 +143,3 @@ class WarehouseBotEnv:
             event_triggered = True
 
         return event_triggered
-
