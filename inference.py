@@ -14,6 +14,7 @@ ACTION_DELTAS: dict[ActionType, tuple[int, int]] = {
     "right": (0, 1),
 }
 
+# Deterministic tiebreaker for moves of equal distance
 ACTION_ORDER: tuple[ActionType, ...] = ("right", "down", "left", "up")
 
 
@@ -21,115 +22,78 @@ def _manhattan_distance(start: tuple[int, int], end: tuple[int, int]) -> int:
     return abs(start[0] - end[0]) + abs(start[1] - end[1])
 
 
-def _direct_path_blockers(
-    start: tuple[int, int],
-    end: tuple[int, int],
-    obstacles: set[tuple[int, int]],
-) -> int:
-    def walk_path(
-        first_axis: str,
-    ) -> list[tuple[int, int]]:
-        row, col = start
-        target_row, target_col = end
-        path: list[tuple[int, int]] = []
+def select_target(
+    current_position: tuple[int, int],
+    remaining_items: list[tuple[int, int]],
+) -> tuple[int, int]:
+    """
+    Pick the nearest item by Manhattan distance.
+    Ties broken deterministically by (row, col).
 
-        if first_axis == "row":
-            row_step = 1 if target_row > row else -1
-            while row != target_row:
-                row += row_step
-                path.append((row, col))
-
-            col_step = 1 if target_col > col else -1
-            while col != target_col:
-                col += col_step
-                path.append((row, col))
-        else:
-            col_step = 1 if target_col > col else -1
-            while col != target_col:
-                col += col_step
-                path.append((row, col))
-
-            row_step = 1 if target_row > row else -1
-            while row != target_row:
-                row += row_step
-                path.append((row, col))
-
-        return path
-
-    if start == end:
-        return 0
-
-    row_first = walk_path("row")
-    col_first = walk_path("col")
-    row_first_blockers = sum(1 for position in row_first if position in obstacles)
-    col_first_blockers = sum(1 for position in col_first if position in obstacles)
-    return min(row_first_blockers, col_first_blockers)
+    ⚠️  Manhattan ignores walls. This is the primary source of suboptimality:
+    an item that looks close in straight-line distance may require a costly
+    wall detour to actually reach.
+    """
+    return min(
+        remaining_items,
+        key=lambda pos: (_manhattan_distance(current_position, pos), pos[0], pos[1]),
+    )
 
 
 def choose_action(
     observation: ObservationModel,
+    committed_target: tuple[int, int],
     visit_counts: dict[tuple[int, int], int],
     previous_position: tuple[int, int] | None,
 ) -> ActionType:
+    """
+    Move one step toward the committed target.
+
+    The agent does NOT re-evaluate which item to pursue mid-journey.
+    It was handed a target by the caller and follows through to completion.
+    This commitment is the key behavioural limitation:
+
+    - Target was selected by Manhattan distance (ignoring walls).
+    - If that target requires a wall detour, the agent pays the full cost
+      without reconsidering whether a different item would have been cheaper.
+
+    Move sorting: distance-to-target + mild revisit penalty (0.15).
+    The penalty prevents trivial 2-step oscillation but is intentionally
+    too weak to redirect the agent toward a globally better target.
+    """
     current_position = (
         observation.agent_position.row,
         observation.agent_position.col,
     )
-    remaining_items = sorted(
-        (item.row, item.col) for item in observation.item_positions
-    )
-    if not remaining_items:
-        return "up"
 
-    obstacles = {(obstacle.row, obstacle.col) for obstacle in observation.obstacles}
+    obstacles = {(obs.row, obs.col) for obs in observation.obstacles}
 
-    target = min(
-        remaining_items,
-        key=lambda item_position: (
-            _manhattan_distance(current_position, item_position),
-            _direct_path_blockers(current_position, item_position, obstacles),
-            item_position[0],
-            item_position[1],
-        ),
-    )
-    current_distance = _manhattan_distance(current_position, target)
-
-    valid_moves: list[tuple[ActionType, tuple[int, int], int, int]] = []
+    valid_moves: list[tuple[ActionType, tuple[int, int], int]] = []
     for action in ACTION_ORDER:
-        delta_row, delta_col = ACTION_DELTAS[action]
-        next_position = (
-            current_position[0] + delta_row,
-            current_position[1] + delta_col,
-        )
-        if not (
-            0 <= next_position[0] < observation.grid_size
-            and 0 <= next_position[1] < observation.grid_size
-        ):
+        dr, dc = ACTION_DELTAS[action]
+        next_pos = (current_position[0] + dr, current_position[1] + dc)
+        if not (0 <= next_pos[0] < observation.grid_size
+                and 0 <= next_pos[1] < observation.grid_size):
             continue
-        if next_position in obstacles:
+        if next_pos in obstacles:
             continue
-
-        next_distance = _manhattan_distance(next_position, target)
-        blocker_count = _direct_path_blockers(next_position, target, obstacles)
-        valid_moves.append((action, next_position, next_distance, blocker_count))
+        dist = _manhattan_distance(next_pos, committed_target)
+        valid_moves.append((action, next_pos, dist))
 
     if not valid_moves:
         return "up"
 
-    non_backtracking_moves = [
-        move for move in valid_moves if move[1] != previous_position
-    ]
-    candidate_moves = non_backtracking_moves or valid_moves
-    candidate_moves.sort(
-        key=lambda move: (
-            0 if move[2] < current_distance else 1,
-            move[3],
-            move[2],
-            visit_counts.get(move[1], 0),
-            ACTION_ORDER.index(move[0]),
+    # Avoid immediate backtracking (prevents trivial 2-step oscillation only)
+    non_backtrack = [m for m in valid_moves if m[1] != previous_position]
+    candidates = non_backtrack or valid_moves
+
+    candidates.sort(
+        key=lambda m: (
+            m[2] + visit_counts.get(m[1], 0) * 0.15,
+            ACTION_ORDER.index(m[0]),
         )
     )
-    return candidate_moves[0][0]
+    return candidates[0][0]
 
 
 def run_task(task_id: str) -> float:
@@ -141,29 +105,55 @@ def run_task(task_id: str) -> float:
     env = WarehouseBotEnv(task_id=task_id)
     observation = env.reset(task_id)
     optimal_steps = optimal_steps_for_task(task_id)
+
     previous_position: tuple[int, int] | None = None
     visit_counts: dict[tuple[int, int], int] = {
         (observation.agent_position.row, observation.agent_position.col): 1
     }
 
+    # Select initial target once. Target is locked until it is collected,
+    # then a new one is selected from the remaining items.
+    remaining = sorted(
+        (item.row, item.col) for item in observation.item_positions
+    )
+    committed_target = select_target(
+        (observation.agent_position.row, observation.agent_position.col),
+        remaining,
+    )
+
     print("[START]")
     print(f"Task: {task.name}")
 
     while not observation.done:
-        action = choose_action(observation, visit_counts, previous_position)
+        action = choose_action(
+            observation, committed_target, visit_counts, previous_position
+        )
+
         current_position = (
             observation.agent_position.row,
             observation.agent_position.col,
         )
+
         result = env.step(action)
         observation = result.observation
+
         next_position = (
             observation.agent_position.row,
             observation.agent_position.col,
         )
+
         previous_position = current_position
         visit_counts[next_position] = visit_counts.get(next_position, 0) + 1
+
         print(f"[STEP] action={action} reward={result.reward:.1f}")
+
+        # If the target was just collected, pick the next one
+        if result.info.item_collected:
+            remaining = sorted(
+                (item.row, item.col) for item in observation.item_positions
+            )
+            if remaining:
+                committed_target = select_target(next_position, remaining)
 
         if result.done:
             break
@@ -175,25 +165,29 @@ def run_task(task_id: str) -> float:
         items_collected=len(observation.picked_items),
     )
     efficiency = (optimal_steps / actual_steps) if actual_steps > 0 else 0.0
+
     print("[END]")
     print(f"Score: {score:.4f}")
     print(f"Steps: {actual_steps}")
     print(f"Optimal: {optimal_steps}")
     print(f"Efficiency: {efficiency:.2f}")
     print()
+
     return score
 
 
 def main() -> None:
     scores: dict[str, float] = {}
+
     for task in list_tasks():
         scores[task.name] = run_task(task.task_id)
 
     overall = (sum(scores.values()) / len(scores)) if scores else 0.0
+
     print("Final Results:")
-    print(f"Easy: {scores['Easy']:.4f}")
-    print(f"Medium: {scores['Medium']:.4f}")
-    print(f"Hard: {scores['Hard']:.4f}")
+    print(f"Easy:    {scores['Easy']:.4f}")
+    print(f"Medium:  {scores['Medium']:.4f}")
+    print(f"Hard:    {scores['Hard']:.4f}")
     print(f"Overall: {overall:.4f}")
 
 

@@ -1,99 +1,93 @@
 from __future__ import annotations
 
 from collections import deque
-from functools import lru_cache
+from itertools import permutations
+from typing import Set, Tuple
 
-from .models import ActionType
-from .tasks import TaskDefinition, get_task
-
-ACTION_DELTAS: dict[ActionType, tuple[int, int]] = {
-    "up": (-1, 0),
-    "down": (1, 0),
-    "left": (0, -1),
-    "right": (0, 1),
-}
-
-ACTION_ORDER: tuple[ActionType, ...] = ("up", "right", "down", "left")
+from .tasks import get_task
 
 
-def _to_tuple(position: object) -> tuple[int, int]:
-    row = getattr(position, "row")
-    col = getattr(position, "col")
-    return row, col
-
-
-def _active_obstacles(task: TaskDefinition, step_count: int) -> set[tuple[int, int]]:
-    obstacles = {_to_tuple(position) for position in task.obstacles}
-    for event in task.dynamic_events:
-        if step_count >= event.trigger_step:
-            obstacles.update(_to_tuple(position) for position in event.positions)
-    return obstacles
-
-
-def clamp_score(score: float) -> float:
-    return max(0.0, min(1.0, score))
-
-
-@lru_cache(maxsize=None)
-def optimal_steps_for_task(task_id: str) -> int:
-    task = get_task(task_id)
-    return _optimal_steps(
-        task=task,
-        start=_to_tuple(task.start_position),
-        remaining_items=tuple(sorted(_to_tuple(position) for position in task.item_positions)),
-        starting_step_count=0,
-    )
-
-
-def _optimal_steps(
-    task: TaskDefinition,
-    start: tuple[int, int],
-    remaining_items: tuple[tuple[int, int], ...],
-    starting_step_count: int,
+def _bfs_shortest_path(
+    start: Tuple[int, int],
+    target: Tuple[int, int],
+    grid_size: int,
+    obstacles: Set[Tuple[int, int]],
 ) -> int:
-    item_index = {item: index for index, item in enumerate(remaining_items)}
-    target_mask = (1 << len(remaining_items)) - 1
+    if start == target:
+        return 0
 
-    queue = deque([(start[0], start[1], 0, starting_step_count)])
-    visited = {(start[0], start[1], 0, starting_step_count)}
+    queue = deque([(start, 0)])
+    visited = {start}
+
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     while queue:
-        row, col, collected_mask, step_count = queue.popleft()
-        if collected_mask == target_mask:
-            return step_count - starting_step_count
+        (r, c), dist = queue.popleft()
 
-        current_obstacles = _active_obstacles(task, step_count)
-        for action in ACTION_ORDER:
-            delta_row, delta_col = ACTION_DELTAS[action]
-            next_row = row + delta_row
-            next_col = col + delta_col
-            if not (0 <= next_row < task.grid_size and 0 <= next_col < task.grid_size):
-                continue
-            if (next_row, next_col) in current_obstacles:
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+
+            if not (0 <= nr < grid_size and 0 <= nc < grid_size):
                 continue
 
-            next_mask = collected_mask
-            if (next_row, next_col) in item_index:
-                next_mask |= 1 << item_index[(next_row, next_col)]
-
-            next_step_count = step_count + 1
-            if next_step_count > task.max_steps:
+            if (nr, nc) in obstacles:
                 continue
 
-            next_state = (next_row, next_col, next_mask, next_step_count)
-            if next_state not in visited:
-                visited.add(next_state)
-                queue.append(next_state)
+            if (nr, nc) in visited:
+                continue
 
-    return task.max_steps
+            if (nr, nc) == target:
+                return dist + 1
 
-def grade_episode(task_id: str, actual_steps: int, items_collected: int) -> float:
+            visited.add((nr, nc))
+            queue.append(((nr, nc), dist + 1))
+
+    return float("inf")
+
+
+def optimal_steps_for_task(task_id: str) -> int:
     task = get_task(task_id)
+
+    obstacles = {(o.row, o.col) for o in task.obstacles}
+
+    start = (task.start_position.row, task.start_position.col)
+    items = [(item.row, item.col) for item in task.item_positions]
+
+    best = float("inf")
+
+    # 🔥 TRY ALL ORDERINGS (this makes grader smarter than agent)
+    for order in permutations(items):
+        current = start
+        total = 0
+
+        for item in order:
+            dist = _bfs_shortest_path(current, item, task.grid_size, obstacles)
+            total += dist
+            current = item
+
+        best = min(best, total)
+
+    return best
+
+
+def grade_episode(
+    task_id: str,
+    actual_steps: int,
+    items_collected: int,
+) -> float:
+    task = get_task(task_id)
+
     total_items = len(task.item_positions)
-    if actual_steps <= 0 or items_collected <= 0 or total_items <= 0:
+
+    if actual_steps <= 0:
         return 0.0
 
     optimal_steps = optimal_steps_for_task(task_id)
-    item_fraction = items_collected / total_items
-    step_fraction = optimal_steps / actual_steps
-    return clamp_score(step_fraction * item_fraction)
+
+    efficiency = optimal_steps / actual_steps
+    completion = items_collected / total_items
+
+    score = efficiency * completion
+    score = max(0.0, min(1.0, score))
+
+    return score

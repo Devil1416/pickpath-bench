@@ -104,7 +104,6 @@ class WarehouseBotEnv:
         early_finish_bonus = 0.0
         if not self._remaining_items:
             self._done = True
-            early_finish_bonus = float(max(0, self._task.max_steps - self._step_count))
             reward += early_finish_bonus
         elif self._step_count >= self._task.max_steps:
             self._done = True
