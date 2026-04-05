@@ -1,0 +1,97 @@
+name: warehouse-bot-env
+description: Deterministic warehouse picking optimization environment for evaluating route efficiency in logistics operations.
+version: 1.0.0
+entry_point: env.env:WarehouseBotEnv
+inference_entry: inference.py
+tasks:
+  - id: easy
+    name: Easy
+    description: Collect three items in a fixed 5x5 warehouse with no obstacles.
+  - id: medium
+    name: Medium
+    description: Collect four items in a fixed 6x6 warehouse with static obstacles and multiple valid paths.
+  - id: hard
+    name: Hard
+    description: Collect four items in a fixed 6x6 warehouse where a corridor closes after step four and forces replanning.
+action_schema:
+  type: object
+  properties:
+    action:
+      type: string
+      enum:
+        - up
+        - down
+        - left
+        - right
+  required:
+    - action
+observation_schema:
+  type: object
+  properties:
+    grid_size:
+      type: integer
+    agent_position:
+      type: object
+      properties:
+        row:
+          type: integer
+        col:
+          type: integer
+      required:
+        - row
+        - col
+    item_positions:
+      type: array
+      items:
+        type: object
+        properties:
+          row:
+            type: integer
+          col:
+            type: integer
+        required:
+          - row
+          - col
+    picked_items:
+      type: array
+      items:
+        type: object
+        properties:
+          row:
+            type: integer
+          col:
+            type: integer
+        required:
+          - row
+          - col
+    obstacles:
+      type: array
+      items:
+        type: object
+        properties:
+          row:
+            type: integer
+          col:
+            type: integer
+        required:
+          - row
+          - col
+    step_count:
+      type: integer
+    task_id:
+      type: string
+    done:
+      type: boolean
+    total_items:
+      type: integer
+  required:
+    - grid_size
+    - agent_position
+    - item_positions
+    - picked_items
+    - obstacles
+    - step_count
+    - task_id
+    - done
+    - total_items
+
