@@ -78,17 +78,10 @@ def list_tasks() -> List[TaskDefinition]:
         #   Agent picks targets by Manhattan distance. From (0,0):
         #     A manhattan=2 ← strictly nearest, so agent picks A first.
         #   But the wall at (1,0)-(1,1) blocks the direct path down.
-        #   BFS to A forces: right→right→down→down→left→left = 6 steps,
-        #   not 2. After reaching A the agent is stranded bottom-left and
-        #   sweeps B→C→D, arriving late to D across the top.
+        #   BFS to A forces: right→right→down→down→left→left = 6 steps.
         #   Agent total: 18 BFS steps.
         #
-        # OPTIMAL ORDER: D→A→B→C
-        #   S→D(4)→A(6 via wall detour, same cost)→B(2)→C(4) = 16 steps.
-        #   Optimal avoids backtracking by visiting D on the way out, then
-        #   sweeping the left/bottom half.
-        #
-        # Score = 16 / 18 ≈ 0.889
+        # OPTIMAL ORDER: D→A→B→C  =  16 steps  →  score ≈ 0.889
         TaskDefinition(
             task_id="medium",
             name="Medium",
@@ -109,7 +102,7 @@ def list_tasks() -> List[TaskDefinition]:
         ),
 
         # ── HARD ──────────────────────────────────────────────────────────────
-        # "Left-wall bait" trap.  Analytically verified score = 21/28 = 0.750.
+        # "Left-wall bait + corridor collapse" trap.
         #
         # Grid (7×7), start = S=(0,0):
         #
@@ -117,28 +110,29 @@ def list_tasks() -> List[TaskDefinition]:
         #   . . # . . . .
         #   . . # . . . G
         #   . . # . . . .
-        #   A . . . . . .
+        #   A . . . . . .   ← gap at (4,2) allows crossing — but closes at step 4
         #   . . . . . C .
         #   . . E . . . .
         #
+        # Static obstacles: vertical wall at col=2, rows 0–3.
+        # Dynamic event   : at step 4, (4,2) becomes an obstacle, closing the
+        #                   only low crossing and forcing a longer detour to (5,2)
+        #                   or (6,2). Any agent that has not yet crossed the wall
+        #                   by step 4 must take an extra 2+ steps.
+        #
         # Items: B=(0,3) bait, A=(4,0), E=(6,2), C=(5,5), G=(2,6)
-        # Obstacles: vertical wall col=2 rows 0–3
         #
         # WHY AGENT IS SUBOPTIMAL:
-        #   From (0,0): B has manhattan=3 (strictly nearest item).
-        #   Agent picks B first. But col-2 wall spanning rows 0–3 forces the
-        #   agent all the way down to row 4 before it can cross right, then back
-        #   up to row 0: BFS cost = 11 steps.
-        #   After reaching B=(0,3) the agent is stranded top-right.
-        #   Remaining items A, E are bottom-left → massive backtrack.
-        #   Agent order: B(11)→G(6)→C(4)→E(7+)→A(5+) ≈ 28 total BFS steps.
+        #   From (0,0): B has manhattan=3 (strictly nearest).
+        #   Agent picks B first — col-2 wall forces detour through row≥4.
+        #   Dynamic event fires at step 4, closing (4,2) mid-journey.
+        #   After reaching B the agent is stranded top-right; remaining
+        #   items A, E are bottom-left → massive backtrack.
+        #   Agent total ≈ 30 BFS steps.
         #
         # OPTIMAL ORDER: A→E→C→G→B
-        #   S→A(4)→E(4)→C(6)→G(5)→B(6) = 21 steps.
-        #   Optimal ignores the bait, sweeps the open left/bottom first,
-        #   then crosses to top-right last (wall detour only paid once at end).
-        #
-        # Score = 21 / 28 = 0.750
+        #   S→A(4)→E(4)→C(6)→G(5)→B(6) = 25 steps (accounting for detour).
+        #   Score = 25 / 30 ≈ 0.833.
         TaskDefinition(
             task_id="hard",
             name="Hard",
@@ -152,15 +146,21 @@ def list_tasks() -> List[TaskDefinition]:
                 GridPosition(row=2, col=6),  # G
             ],
             obstacles=[
-                # Vertical wall at col=2, rows 0–3.
+                # Static vertical wall at col=2, rows 0–3.
                 # Prevents crossing to right side in the top half.
-                # Agent must go to row≥4 to pass through, adding ~8 extra steps.
                 GridPosition(row=0, col=2),
                 GridPosition(row=1, col=2),
                 GridPosition(row=2, col=2),
                 GridPosition(row=3, col=2),
             ],
             max_steps=80,
-            dynamic_events=[],
+            dynamic_events=[
+                # At step 4 the corridor at (4,2) closes, forcing any agent that
+                # has not yet crossed to detour via row 5 or 6 instead.
+                DynamicObstacleEvent(
+                    trigger_step=4,
+                    positions=[GridPosition(row=4, col=2)],
+                ),
+            ],
         ),
     ]

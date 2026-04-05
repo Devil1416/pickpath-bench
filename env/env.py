@@ -4,10 +4,10 @@ from .models import ActionModel, GridPosition, ObservationModel, RewardModel, St
 from .tasks import TaskDefinition, get_task
 
 ACTION_DELTAS = {
-    "up": (-1, 0),
-    "down": (1, 0),
-    "left": (0, -1),
-    "right": (0, 1),
+    "up":    (-1,  0),
+    "down":  ( 1,  0),
+    "left":  ( 0, -1),
+    "right": ( 0,  1),
 }
 
 
@@ -101,9 +101,14 @@ class WarehouseBotEnv:
         self._step_count += 1
         dynamic_event_triggered = self._apply_dynamic_obstacles()
 
+        # Early-finish bonus: reward unused step budget proportionally.
+        # Gives up to +10 for finishing well before the step limit.
         early_finish_bonus = 0.0
         if not self._remaining_items:
             self._done = True
+            steps_remaining = self._task.max_steps - self._step_count
+            if steps_remaining > 0:
+                early_finish_bonus = 10.0 * (steps_remaining / self._task.max_steps)
             reward += early_finish_bonus
         elif self._step_count >= self._task.max_steps:
             self._done = True
@@ -136,9 +141,7 @@ class WarehouseBotEnv:
         for event in self._task.dynamic_events:
             if event.trigger_step != self._step_count:
                 continue
-
             for position in event.positions:
                 self._obstacles.add(position.as_tuple())
             event_triggered = True
-
         return event_triggered
