@@ -78,21 +78,27 @@ def grade_episode(
     task = get_task(task_id)
 
     total_items = len(task.item_positions)
+    eps = 1e-6
 
-    eps = 1e-6  # 🔥 ONLY addition (validation fix)
-
-    # ❌ was returning 0.0 → now safe
+    # safety for invalid steps
     if actual_steps <= 0:
         return eps
 
+    # safety for weird tasks
+    if total_items == 0:
+        return eps
+
     optimal_steps = optimal_steps_for_task(task_id)
+
+    if optimal_steps == float("inf"):
+        return eps
 
     efficiency = optimal_steps / actual_steps
     completion = items_collected / total_items
 
     score = efficiency * completion
 
-    # 🔥 STRICT clamp (0,1)
-    score = max(eps, min(1.0 - eps, score))
+    if not (0 < score < 1):
+        score = max(eps, min(1 - eps, score))
 
     return score
