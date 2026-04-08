@@ -298,3 +298,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+@app.route("/")
+def home():
+    return {
+        "message": "PickPath Bench running",
+        "status": "ok"
+    }
