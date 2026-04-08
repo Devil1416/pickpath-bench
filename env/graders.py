@@ -79,8 +79,11 @@ def grade_episode(
 
     total_items = len(task.item_positions)
 
+    # small epsilon to avoid 0 and 1
+    eps = 1e-6
+
     if actual_steps <= 0:
-        return 0.0
+        return eps
 
     optimal_steps = optimal_steps_for_task(task_id)
 
@@ -88,6 +91,8 @@ def grade_episode(
     completion = items_collected / total_items
 
     score = efficiency * completion
-    score = max(0.0, min(1.0, score))
+
+    # clamp STRICTLY between (0,1)
+    score = max(eps, min(1.0 - eps, score))
 
     return score
