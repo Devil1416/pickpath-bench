@@ -508,6 +508,76 @@ def results():
     return jsonify(_last_results)
 
 
+# ── OpenEnv required REST API endpoints ──────────────────────────────────────
+# These are checked by the OpenEnv automated validator.
+
+_active_envs: dict[str, WarehouseBotEnv] = {}
+
+
+@app.route("/reset", methods=["POST"])
+def openenv_reset():
+    """POST /reset  — reset the environment and return the initial observation."""
+    from flask import request
+    body = request.get_json(silent=True) or {}
+    task_id = body.get("task_id", "easy")
+
+    try:
+        env = WarehouseBotEnv(task_id=task_id)
+        obs = env.reset(task_id)
+        _active_envs[task_id] = env
+        return jsonify(obs.model_dump()), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/step", methods=["POST"])
+def openenv_step():
+    """POST /step  — take one action and return reward, done, observation, info."""
+    from flask import request
+    body = request.get_json(silent=True) or {}
+    task_id = body.get("task_id", "easy")
+    action  = body.get("action")
+
+    if action not in ("up", "down", "left", "right"):
+        return jsonify({"error": f"Invalid action: {action!r}"}), 400
+
+    env = _active_envs.get(task_id)
+    if env is None:
+        # Auto-initialise if not yet reset
+        env = WarehouseBotEnv(task_id=task_id)
+        env.reset(task_id)
+        _active_envs[task_id] = env
+
+    result = env.step(action)
+    return jsonify(result.model_dump()), 200
+
+
+@app.route("/state", methods=["GET"])
+def openenv_state():
+    """GET /state  — return current observation without side effects."""
+    from flask import request
+    task_id = request.args.get("task_id", "easy")
+
+    env = _active_envs.get(task_id)
+    if env is None:
+        env = WarehouseBotEnv(task_id=task_id)
+        env.reset(task_id)
+        _active_envs[task_id] = env
+
+    return jsonify(env.state().model_dump()), 200
+
+
+@app.route("/tasks", methods=["GET"])
+def openenv_tasks():
+    """GET /tasks  — list all available tasks."""
+    tasks_out = [
+        {"task_id": t.task_id, "name": t.name, "grid_size": t.grid_size,
+         "total_items": len(t.item_positions), "max_steps": t.max_steps}
+        for t in list_tasks()
+    ]
+    return jsonify(tasks_out), 200
+
+
 if __name__ == "__main__":
     # Also print inference logs to stdout for HF Space log viewer
     import subprocess, sys
