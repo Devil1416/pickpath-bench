@@ -55,7 +55,7 @@ def optimal_steps_for_task(task_id: str) -> int:
 
     best = float("inf")
 
-    # 🔥 TRY ALL ORDERINGS (this makes grader smarter than agent)
+    # 🔥 TRY ALL ORDERINGS (unchanged)
     for order in permutations(items):
         current = start
         total = 0
@@ -79,9 +79,9 @@ def grade_episode(
 
     total_items = len(task.item_positions)
 
-    # small epsilon to avoid 0 and 1
-    eps = 1e-6
+    eps = 1e-6  # 🔥 ONLY addition (validation fix)
 
+    # ❌ was returning 0.0 → now safe
     if actual_steps <= 0:
         return eps
 
@@ -92,7 +92,7 @@ def grade_episode(
 
     score = efficiency * completion
 
-    # clamp STRICTLY between (0,1)
+    # 🔥 STRICT clamp (0,1)
     score = max(eps, min(1.0 - eps, score))
 
     return score
