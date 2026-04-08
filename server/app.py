@@ -295,13 +295,13 @@ def main():
     print(f"===== PickPath-Bench server starting on port {port} =====", flush=True)
     app.run(host="0.0.0.0", port=port, threaded=True)
 
-
-if __name__ == "__main__":
-    main()
-
 @app.route("/")
 def home():
     return {
         "message": "PickPath Bench running",
         "status": "ok"
     }
+
+if __name__ == "__main__":
+    main()
+
