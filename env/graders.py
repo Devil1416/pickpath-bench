@@ -55,7 +55,6 @@ def optimal_steps_for_task(task_id: str) -> int:
 
     best = float("inf")
 
-    # 🔥 TRY ALL ORDERINGS (unchanged)
     for order in permutations(items):
         current = start
         total = 0
@@ -80,11 +79,9 @@ def grade_episode(
     total_items = len(task.item_positions)
     eps = 1e-6
 
-    # safety for invalid steps
     if actual_steps <= 0:
         return eps
 
-    # safety for weird tasks
     if total_items == 0:
         return eps
 
@@ -98,7 +95,5 @@ def grade_episode(
 
     score = efficiency * completion
 
-    if not (0 < score < 1):
-        score = max(eps, min(1 - eps, score))
-
-    return score
+    # Always clamp — score == 1.0 (perfect run on Easy) was failing validation
+    return max(eps, min(1 - eps, score))
