@@ -240,6 +240,7 @@ def _run_all_tasks(emit):
 
         score   = grade_episode(task_id=tid, actual_steps=obs.step_count,
                                 items_collected=len(obs.picked_items))
+        score   = max(1e-6, min(1 - 1e-6, score))   # clamp — validator + UI safety
         success = len(obs.picked_items) == len(task.item_positions)
         scores[tid] = score
         emit({"type": "end", "task": tid, "success": success,
@@ -315,6 +316,8 @@ def _run_inference_on_startup():
         total_items     = len(task.item_positions)
         score = grade_episode(task_id=tid, actual_steps=obs.step_count,
                               items_collected=items_collected)
+        # CRITICAL: clamp to (0, 1) exclusive — validator rejects 0.0 or 1.0 exactly
+        score = max(1e-6, min(1 - 1e-6, score))
         success = items_collected == total_items
         scores[tid] = score
 
@@ -327,10 +330,12 @@ def _run_inference_on_startup():
         print(flush=True)
 
     overall = sum(scores.values()) / len(scores) if scores else 0.0
+    # clamp overall too
+    overall = max(1e-6, min(1 - 1e-6, overall))
 
     print("=== Final Results ===", flush=True)
     for task_def in list_tasks():
-        val = scores.get(task_def.task_id, 0.0)
+        val = max(1e-6, min(1 - 1e-6, scores.get(task_def.task_id, 0.0)))
         print(f"{task_def.name:8s}: {val:.6f}", flush=True)
     print(f"{'Overall':8s}: {overall:.6f}", flush=True)
     print("=" * 60, flush=True)
