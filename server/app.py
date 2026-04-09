@@ -30,7 +30,7 @@ for _p in (_ROOT, _HERE):
         sys.path.insert(0, _p)
 
 from env.env import WarehouseBotEnv
-from env.graders import grade_episode
+from env.graders import clamp_score, grade_episode
 from env.models import ObservationModel
 from env.tasks import get_task, list_tasks
 
@@ -240,13 +240,14 @@ def _run_all_tasks(emit):
 
         score   = grade_episode(task_id=tid, actual_steps=obs.step_count,
                                 items_collected=len(obs.picked_items))
-        score   = max(1e-6, min(1 - 1e-6, score))   # clamp — validator + UI safety
+        score   = clamp_score(score)
         success = len(obs.picked_items) == len(task.item_positions)
         scores[tid] = score
         emit({"type": "end", "task": tid, "success": success,
               "steps": step_n, "score": score, "rewards": rewards})
 
     overall = sum(scores.values()) / len(scores) if scores else 0.0
+    overall = clamp_score(overall)
     emit({"type": "done", "scores": scores, "overall": overall})
     return scores
 
@@ -317,7 +318,7 @@ def _run_inference_on_startup():
         score = grade_episode(task_id=tid, actual_steps=obs.step_count,
                               items_collected=items_collected)
         # CRITICAL: clamp to (0, 1) exclusive — validator rejects 0.0 or 1.0 exactly
-        score = max(1e-6, min(1 - 1e-6, score))
+        score = clamp_score(score)
         success = items_collected == total_items
         scores[tid] = score
 
@@ -331,11 +332,11 @@ def _run_inference_on_startup():
 
     overall = sum(scores.values()) / len(scores) if scores else 0.0
     # clamp overall too
-    overall = max(1e-6, min(1 - 1e-6, overall))
+    overall = clamp_score(overall)
 
     print("=== Final Results ===", flush=True)
     for task_def in list_tasks():
-        val = max(1e-6, min(1 - 1e-6, scores.get(task_def.task_id, 0.0)))
+        val = clamp_score(scores.get(task_def.task_id, 0.0))
         print(f"{task_def.name:8s}: {val:.6f}", flush=True)
     print(f"{'Overall':8s}: {overall:.6f}", flush=True)
     print("=" * 60, flush=True)

@@ -138,7 +138,7 @@ S . A . .
 . . . . C
 ```
 
-Items lie on a roughly diagonal path. Greedy nearest-first selection produces the globally optimal order. Purpose: verify the grader, establish a clean 1.0 baseline, and confirm an LLM can follow basic navigation instructions.
+Items lie on a roughly diagonal path. Greedy nearest-first selection produces the globally optimal order. Purpose: verify the grader, establish a near-perfect baseline below the validator ceiling, and confirm an LLM can follow basic navigation instructions.
 
 | Metric | Value |
 |---|---|
@@ -147,7 +147,7 @@ Items lie on a roughly diagonal path. Greedy nearest-first selection produces th
 | Obstacles | 0 |
 | Max steps | 50 |
 | Optimal steps | 8 |
-| **Baseline score** | **1.0000** |
+| **Baseline score** | **0.9900** |
 
 ---
 
@@ -209,7 +209,7 @@ Optimal:             S→A(4)→E(4)→C(6)→G(5)→B(6)   = 21 steps
 | Dynamic events | 1 (step 4) |
 | Max steps | 80 |
 | Optimal steps | 21 |
-| **Baseline score** | **0.7500** |
+| **Baseline score** | **0.7000** |
 
 ---
 
@@ -221,7 +221,7 @@ The grader computes the **true BFS-optimal route** by exhaustively evaluating al
 score = (optimal_steps / actual_steps) × (items_collected / total_items)
 ```
 
-Clamped to `[0.0, 1.0]`. A score of 1.0 means the agent matched the optimal route exactly. The grader uses real BFS distances — not Manhattan approximations — making it strictly harder to fool than the baseline agent.
+Clamped to `[0.01, 0.99]`. An optimal run reaches the upper ceiling instead of 1.0 exactly so validators that round scores never push it out of range. The grader uses real BFS distances — not Manhattan approximations — making it strictly harder to fool than the baseline agent.
 
 ---
 
@@ -231,10 +231,10 @@ Scores produced by the deterministic planner in `inference.py` (no LLM):
 
 | Task | Optimal Steps | Agent Steps | Score |
 |---|---|---|---|
-| Easy | 8 | 8 | **1.0000** |
+| Easy | 8 | 8 | **0.9900** |
 | Medium | 16 | 18 | **0.8889** |
-| Hard | 21 | 28 | **0.7500** |
-| **Overall** | — | — | **0.8796** |
+| Hard | 21 | 30 | **0.7000** |
+| **Overall** | — | — | **0.8596** |
 
 ---
 
@@ -248,7 +248,7 @@ Scores produced by the deterministic planner in `inference.py` (no LLM):
 [STEP] step=1 action=right reward=-1.00 done=false error=null
 [STEP] step=2 action=right reward=49.00 done=false error=null
 ...
-[END] success=true steps=8 score=1.00 rewards=-1.00,-1.00,49.00,...
+[END] success=true steps=8 score=0.990000 rewards=-1.00,-1.00,49.00,...
 ```
 
 **Environment variables:**

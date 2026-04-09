@@ -6,6 +6,14 @@ from typing import Set, Tuple
 
 from .tasks import get_task
 
+MIN_SCORE = 0.01
+MAX_SCORE = 0.99
+
+
+def clamp_score(score: float) -> float:
+    """Keep scores safely away from endpoints even after downstream rounding."""
+    return max(MIN_SCORE, min(MAX_SCORE, score))
+
 
 def _bfs_shortest_path(
     start: Tuple[int, int],
@@ -77,18 +85,17 @@ def grade_episode(
     task = get_task(task_id)
 
     total_items = len(task.item_positions)
-    eps = 1e-6
 
     if actual_steps <= 0:
-        return eps
+        return MIN_SCORE
 
     if total_items == 0:
-        return eps
+        return MIN_SCORE
 
     optimal_steps = optimal_steps_for_task(task_id)
 
     if optimal_steps == float("inf"):
-        return eps
+        return MIN_SCORE
 
     efficiency = optimal_steps / actual_steps
     completion = items_collected / total_items
@@ -96,4 +103,4 @@ def grade_episode(
     score = efficiency * completion
 
     # Always clamp — score == 1.0 (perfect run on Easy) was failing validation
-    return max(eps, min(1 - eps, score))
+    return clamp_score(score)

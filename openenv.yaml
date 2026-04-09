@@ -11,7 +11,7 @@ tasks:
     description: >
       Collect three items in a fixed 5×5 warehouse with no obstacles.
       The greedy nearest-first order is also the optimal order, so a
-      perfect agent scores 1.0.
+      perfect agent reaches the score ceiling safely below 1.0.
   - id: medium
     name: Medium
     description: >

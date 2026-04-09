@@ -9,7 +9,7 @@ from openai import OpenAI
 
 sys.path.insert(0, os.path.dirname(__file__))
 from env.env import WarehouseBotEnv
-from env.graders import grade_episode
+from env.graders import clamp_score, grade_episode
 from env.models import ActionType, ObservationModel
 from env.tasks import get_task, list_tasks
 
@@ -166,7 +166,7 @@ def run_task(task_id: str) -> float:
     )
 
     # 🔥 CRITICAL FIX
-    score = max(1e-6, min(1 - 1e-6, score))
+    score = clamp_score(score)
 
     success = items_collected == total_items
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
@@ -190,10 +190,10 @@ def main():
 
     print("=== Final Results ===")
     for task in list_tasks():
-        val = max(1e-6, min(1 - 1e-6, scores[task.task_id]))
+        val = clamp_score(scores[task.task_id])
         print(f"{task.name:8s}: {val:.6f}")
 
-    overall = max(1e-6, min(1 - 1e-6, overall))
+    overall = clamp_score(overall)
     print(f"{'Overall':8s}: {overall:.6f}")
 
 
