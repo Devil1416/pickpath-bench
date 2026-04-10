@@ -62,9 +62,30 @@ The core insight: the agent selects targets by **Manhattan distance** (straight-
 
 ---
 
-## API
+## Live Demo
 
-PickPath-Bench implements the full OpenEnv interface:
+The Hugging Face Space runs a **live grid visualiser** at port 7860. On container startup, the full benchmark executes automatically and streams `[START]` / `[STEP]` / `[END]` output to both the container log and the in-browser log panel. Hit **RUN BENCHMARK** in the UI to replay it live with per-step grid animation.
+
+```
+┌──────────────────────────────────────────────┐
+│  EASY 0.9999  │  MEDIUM 0.8889  │  HARD 0.7000│  ← score cards
+│                                              │
+│  [grid canvas — agent moves in real time]    │
+│                                              │
+│  CONTAINER LOG                               │
+│  [START] task=easy model=Qwen2.5-72B         │
+│  [STEP 2] right → ITEM COLLECTED ★           │
+│  [END] success=true steps=8 score=0.999999   │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## REST API (OpenEnv compliant)
+
+The server exposes the full OpenEnv REST interface alongside the web UI — both run on the same Flask process on port 7860.
+
+### Python SDK
 
 ```python
 from env.env import WarehouseBotEnv
@@ -73,6 +94,31 @@ env = WarehouseBotEnv(task_id="medium")
 obs = env.reset("medium")       # → ObservationModel
 result = env.step("right")      # → RewardModel  (obs, reward, done, info)
 state = env.state()             # → ObservationModel (no side effects)
+```
+
+### HTTP endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness probe → `{"status": "ok"}` |
+| `GET` | `/tasks` | List all tasks with metadata |
+| `POST` | `/reset` | Reset environment, return initial observation |
+| `POST` | `/step` | Take one action, return RewardModel |
+| `GET` | `/state` | Current observation (no side effects) |
+| `GET` | `/run` | SSE stream — runs all tasks, emits step events |
+
+**Reset example:**
+```bash
+curl -X POST https://harshnotfound-pickpath-bench.hf.space/reset \
+     -H "Content-Type: application/json" \
+     -d '{"task_id": "hard"}'
+```
+
+**Step example:**
+```bash
+curl -X POST https://harshnotfound-pickpath-bench.hf.space/step \
+     -H "Content-Type: application/json" \
+     -d '{"task_id": "hard", "action": "down"}'
 ```
 
 All inputs and outputs are **typed Pydantic v2 models** — no raw dicts, no implicit state.
@@ -138,7 +184,7 @@ S . A . .
 . . . . C
 ```
 
-Items lie on a roughly diagonal path. Greedy nearest-first selection produces the globally optimal order. Purpose: verify the grader, establish a near-perfect baseline below the validator ceiling, and confirm an LLM can follow basic navigation instructions.
+Items lie on a roughly diagonal path. Greedy nearest-first selection produces the globally optimal order. Purpose: verify the grader, establish a clean baseline, and confirm an LLM can follow basic navigation instructions.
 
 | Metric | Value |
 |---|---|
@@ -147,7 +193,7 @@ Items lie on a roughly diagonal path. Greedy nearest-first selection produces th
 | Obstacles | 0 |
 | Max steps | 50 |
 | Optimal steps | 8 |
-| **Baseline score** | **0.9900** |
+| **Baseline score** | **0.9999** |
 
 ---
 
@@ -162,7 +208,7 @@ A . . . . .
 . B . . . .
 ```
 
-Item **A** at `(2,0)` has Manhattan distance 2 — the closest item from start. But the wall forces a 6-step BFS detour to reach it. An agent that commits to A first then backtracks across the grid to collect B, C, and D in a suboptimal order. The optimal agent ignores the Manhattan bait, collects D first (a free rightward sweep), then A, B, C in sequence.
+Item **A** at `(2,0)` has Manhattan distance 2 — the closest item from start. But the wall forces a 6-step BFS detour to reach it. An agent that commits to A first then backtracks across the grid to collect B, C, and D pays heavily. The optimal agent ignores the Manhattan bait, collects D first (a free rightward sweep), then A, B, C in sequence.
 
 ```
 Greedy (Manhattan-first): S → A(6) → B(3) → C(5) → D(4) = 18 steps
@@ -192,13 +238,13 @@ A . · . . . .   ← gap (4,2) open initially, closes at step 4
 . . E . . . .
 ```
 
-A static 4-cell wall at `col=2, rows 0–3` blocks the direct path to the right side of the grid. Item **B** at `(0,3)` appears closest by Manhattan (distance 3) but requires an 11-step BFS detour — the agent must go all the way down to row 4 to cross the wall, then back up. At **step 4**, a dynamic event closes the crossing at `(4,2)`, forcing any agent that hasn't crossed yet to detour further via row 5 or 6.
+A static 4-cell wall at `col=2, rows 0–3` blocks the direct path to the right side of the grid. Item **B** at `(0,3)` appears closest by Manhattan (distance 3) but requires a costly BFS detour through the bottom of the grid. At **step 4**, a dynamic event closes the crossing at `(4,2)`, forcing any agent that has not yet crossed to detour further via row 5 or 6.
 
-An agent that chases B first gets stranded in the top-right with items A and E still in the bottom-left, triggering a massive backtrack. The optimal agent ignores the bait entirely, sweeps the open left-bottom side first, then crosses once to collect the right-side items.
+An agent that chases B first gets stranded on the right side with items A and E still on the left, triggering a massive backtrack. The optimal agent ignores the bait entirely, sweeps the open left side first (`A → E`), then crosses once to collect the right-side items (`C → G → B`).
 
 ```
-Greedy (bait-first): S→B(11)→G(6)→C(4)→E(9)→A(5)  ≈ 28 steps
-Optimal:             S→A(4)→E(4)→C(6)→G(5)→B(6)   = 21 steps
+Greedy (bait-first): S → B → G → C → E → A  ≈ 30 steps
+Optimal:             S → A → E → C → G → B  = 21 steps
 ```
 
 | Metric | Value |
@@ -206,7 +252,7 @@ Optimal:             S→A(4)→E(4)→C(6)→G(5)→B(6)   = 21 steps
 | Grid | 7 × 7 |
 | Items | 5 |
 | Static obstacles | 4 |
-| Dynamic events | 1 (step 4) |
+| Dynamic events | 1 (step 4, closes `(4,2)`) |
 | Max steps | 80 |
 | Optimal steps | 21 |
 | **Baseline score** | **0.7000** |
@@ -221,34 +267,42 @@ The grader computes the **true BFS-optimal route** by exhaustively evaluating al
 score = (optimal_steps / actual_steps) × (items_collected / total_items)
 ```
 
-Clamped to `[0.01, 0.99]`. An optimal run reaches the upper ceiling instead of 1.0 exactly so validators that round scores never push it out of range. The grader uses real BFS distances — not Manhattan approximations — making it strictly harder to fool than the baseline agent.
+Clamped strictly to `(0, 1)` — scores of exactly `0.0` or `1.0` are nudged by `1e-6` to satisfy the OpenEnv validator's open-interval requirement. The grader uses real BFS distances — not Manhattan approximations — making it strictly harder to fool than the baseline agent.
 
 ---
 
 ## Baseline Scores
 
-Scores produced by the deterministic planner in `inference.py` (no LLM):
+Scores produced by the deterministic planner in `inference.py` (no LLM), verified by full simulation:
 
 | Task | Optimal Steps | Agent Steps | Score |
 |---|---|---|---|
-| Easy | 8 | 8 | **0.9900** |
+| Easy | 8 | 8 | **0.9999** |
 | Medium | 16 | 18 | **0.8889** |
 | Hard | 21 | 30 | **0.7000** |
-| **Overall** | — | — | **0.8596** |
+| **Overall** | — | — | **0.8629** |
+
+The progression — **0.9999 → 0.8889 → 0.7000** — reflects three meaningfully different difficulty levels. Easy confirms the pipeline is correct. Medium penalises naive wall-ignoring target selection. Hard additionally requires surviving a mid-episode dynamic obstacle that invalidates greedy routes committed at reset.
 
 ---
 
 ## Inference Script
 
-`inference.py` runs all three tasks end-to-end. When `HF_TOKEN` is set, it queries the LLM via the OpenAI-compatible client. When absent, it falls back to the deterministic planner — so the script **always runs to completion** regardless of API availability.
+`inference.py` runs all three tasks end-to-end. When `HF_TOKEN` is set, it queries the LLM via the OpenAI-compatible client for every action. When absent, it falls back to the deterministic planner — so the script **always runs to completion** regardless of API availability.
 
 **Output format** (strictly followed):
 ```
-[START] task=easy env=pickpath-bench model=Qwen/Qwen2.5-72B-Instruct
+[START] task=easy env=warehouse-bot-env model=Qwen/Qwen2.5-72B-Instruct
 [STEP] step=1 action=right reward=-1.00 done=false error=null
 [STEP] step=2 action=right reward=49.00 done=false error=null
 ...
-[END] success=true steps=8 score=0.990000 rewards=-1.00,-1.00,49.00,...
+[END] success=true steps=8 score=0.999999 rewards=-1.00,-1.00,49.00,...
+
+=== Final Results ===
+Easy    : 0.999999
+Medium  : 0.888889
+Hard    : 0.700000
+Overall : 0.862963
 ```
 
 **Environment variables:**
@@ -257,16 +311,16 @@ Scores produced by the deterministic planner in `inference.py` (no LLM):
 |---|---|---|
 | `API_BASE_URL` | `https://router.huggingface.co/v1` | LLM API endpoint |
 | `MODEL_NAME` | `Qwen/Qwen2.5-72B-Instruct` | Model identifier |
-| `HF_TOKEN` | *(none)* | Hugging Face / API key |
+| `HF_TOKEN` | *(none)* | Hugging Face / API key — triggers LLM mode |
 
 ---
 
 ## Setup
 
-**Local:**
+**Local (planner mode, no API key needed):**
 ```bash
-git clone https://huggingface.co/spaces/harshnotfound/warehouse-bot-env
-cd warehouse-bot-env
+git clone https://huggingface.co/spaces/harshnotfound/pickpath-bench
+cd pickpath-bench
 pip install -r requirements.txt
 python inference.py
 ```
@@ -278,13 +332,20 @@ export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
 python inference.py
 ```
 
+**Server mode (web UI + REST API):**
+```bash
+python server/app.py          # starts on port 7860
+# or via entry point:
+server                        # if installed via pyproject.toml
+```
+
 **Docker:**
 ```bash
 docker build -t pickpath-bench .
-docker run --rm pickpath-bench
+docker run --rm -p 7860:7860 pickpath-bench
 
 # With LLM
-docker run --rm \
+docker run --rm -p 7860:7860 \
   -e HF_TOKEN=hf_... \
   -e MODEL_NAME=Qwen/Qwen2.5-72B-Instruct \
   pickpath-bench
@@ -302,13 +363,25 @@ pickpath-bench/
 │   ├── models.py       # Pydantic v2 typed models
 │   ├── tasks.py        # Task definitions + dynamic obstacle events
 │   └── graders.py      # BFS exhaustive optimal-path grader
+├── server/
+│   ├── __init__.py
+│   └── app.py          # Flask server — OpenEnv REST API + web UI + startup inference
 ├── inference.py        # Baseline runner — OpenAI client + planner fallback
-├── app.py              # Flask web UI with live grid visualisation (port 7860)
 ├── openenv.yaml        # OpenEnv spec metadata
+├── pyproject.toml      # Package metadata + entry points
+├── uv.lock             # Locked dependency versions
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
+
+### Key design: single process, dual interface
+
+`server/app.py` runs one Flask process that serves both the OpenEnv REST API and the live web UI. On startup it immediately runs the full benchmark and prints `[START]`/`[STEP]`/`[END]` output to stdout (visible in HF container logs), then begins serving HTTP. This means:
+
+- Judges can read benchmark results from container logs without triggering the UI
+- The `/run` SSE endpoint replays the same run live in the browser
+- The REST API (`/reset`, `/step`, `/state`) is always available for automated evaluation
 
 ---
 
@@ -317,11 +390,11 @@ pickpath-bench/
 Most grid navigation benchmarks fail because the optimal policy is trivially learnable. PickPath-Bench is designed so that **locally rational behaviour is globally suboptimal**:
 
 1. **Manhattan ≠ BFS** — walls make the nearest-looking item expensive to reach
-2. **Committed routing** — the agent locks a target on selection and cannot greedily redirect mid-path
-3. **Dynamic events** — corridors close mid-episode, invalidating routes planned at reset
-4. **Exhaustive grader** — ground-truth optimal is computed by full BFS permutation search, not approximated
+2. **Global ordering matters** — collecting items in the wrong order forces costly backtracks across the grid
+3. **Dynamic events** — the corridor collapse at step 4 invalidates routes that depend on the gap at `(4,2)`, but the optimal route never needs that cell — only a greedy agent that chases the bait gets caught
+4. **Exhaustive grader** — ground-truth optimal is computed by full BFS permutation search across all item orderings, not approximated by Manhattan distance
 
-An agent must reason about global item ordering — not just local distance — to score above the baseline.
+An agent must reason about **global item ordering and wall-aware path costs** — not just local distance — to score above the baseline.
 
 ---
 
